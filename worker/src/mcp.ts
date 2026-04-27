@@ -144,9 +144,9 @@ const TOOLS: ToolDef[] = [
         },
         max_pages: {
           type: "integer",
-          description: "Max pages to return (default 3, max 10)",
+          description: "Max pages to return (default 8, max 20)",
           minimum: 1,
-          maximum: 10,
+          maximum: 20,
         },
       },
       required: ["package", "query"],
@@ -156,7 +156,7 @@ const TOOLS: ToolDef[] = [
       const pkg = String(args.package ?? "").trim();
       const query = String(args.query ?? "").trim();
       const ecosystem = args.ecosystem ? String(args.ecosystem) : undefined;
-      const maxPages = clampInt(args.max_pages, 1, 10);
+      const maxPages = clampInt(args.max_pages, 1, 20);
 
       if (!pkg) return errorContent("`package` is required");
       if (!query) return errorContent("`query` is required");

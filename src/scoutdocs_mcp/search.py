@@ -42,9 +42,9 @@ _UA = f"scoutdocs-mcp/{__version__} (+https://github.com/eshaanmathakari/scoutdo
 PAGE_TIMEOUT = 10.0
 MAX_BODY_BYTES = 256 * 1024
 
-DEFAULT_MAX_PAGES = 8
-DEFAULT_CHARS_PER_PAGE = 20_000
-DEFAULT_TOTAL_CHARS = 120_000
+DEFAULT_MAX_PAGES = 15
+DEFAULT_CHARS_PER_PAGE = 24_000
+DEFAULT_TOTAL_CHARS = 500_000
 
 _SITEMAP_NS = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
 
@@ -337,10 +337,14 @@ async def search_package_docs(
                             enqueue(loc)
 
         # Walk the queue. Expand <a href> from the first seed exactly once.
+        # README is always included and does not count toward max_pages — that
+        # cap is for *discovered* pages so a generic README doesn't crowd out
+        # the docs we actually went looking for.
         first_seed = seeds[0] if seeds else None
         expanded = False
+        discovered = 0
         i = 0
-        while i < len(queue) and len(pages) < max_pages:
+        while i < len(queue) and discovered < max_pages:
             url = queue[i]
             i += 1
             got = await _safe_get(client, url)
@@ -352,6 +356,7 @@ async def search_package_docs(
                 page, was_trunc = built
                 page.score = _score(page.text, tokens)
                 pages.append(page)
+                discovered += 1
                 if was_trunc:
                     any_truncation = True
 

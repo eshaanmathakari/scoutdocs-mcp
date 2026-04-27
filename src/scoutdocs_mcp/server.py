@@ -110,7 +110,7 @@ async def list_tools() -> list[types.Tool]:
                         "type": "integer",
                         "description": f"Max pages to return (default {DEFAULT_MAX_PAGES})",
                         "minimum": 1,
-                        "maximum": 20,
+                        "maximum": 30,
                     },
                 },
                 "required": ["package", "query"],

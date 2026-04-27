@@ -58,7 +58,7 @@ Point any MCP client at the public Streamable HTTP endpoint:
 https://scoutdocs-mcp.<workers-subdomain>.workers.dev/mcp
 ```
 
-The hosted endpoint is unauthenticated and rate-limited (60 MCP req/min, 10 search req/min per client IP). Search results are capped tighter than local (3 pages × 12k chars / 30k total) to fit Worker free-tier limits.
+The hosted endpoint is unauthenticated and rate-limited (60 MCP req/min, 10 search req/min per client IP). Search results are capped tighter than local (8 discovered pages × 18k chars / 200k total backstop) but well within Cloudflare free-tier headroom.
 
 ## Example prompts
 
@@ -86,11 +86,14 @@ export GITHUB_TOKEN=ghp_your_token_here
 
 ### Search caps
 
+The README is **always** included as a free first page. The `max_pages` cap
+governs how many *discovered* pages we add on top of it.
+
 | | Hosted | Local default |
 |---|---|---|
-| Max pages | 3 | 8 |
-| Max chars/page | 12,000 | 20,000 |
-| Total cap | 30,000 | 120,000 |
+| Discovered pages | 8 (max 20 via `max_pages` arg) | 15 (max 30 via `max_pages` arg) |
+| Chars/page | 18,000 | 24,000 |
+| Total backstop | 200,000 | 500,000 |
 
 ## Supported ecosystems
 

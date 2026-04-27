@@ -201,7 +201,10 @@ async def test_search_enforces_max_pages(httpx_mock):
         "demo", "anything", ecosystem="python", max_pages=2
     )
     assert result is not None
-    assert len(result.pages) <= 2
+    # README is always free; cap applies to discovered pages only.
+    readme_count = sum(1 for p in result.pages if p.title == "demo README")
+    discovered_count = len(result.pages) - readme_count
+    assert discovered_count <= 2
 
 
 async def test_search_enforces_total_char_cap(httpx_mock):

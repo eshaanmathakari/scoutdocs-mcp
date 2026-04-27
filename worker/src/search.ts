@@ -186,11 +186,11 @@ export async function searchPackageDocs(
   const info = await fetchPackage(packageName, ecosystem, env);
   if (!info) return null;
 
-  const maxPages = options.maxPages ?? intEnv(env.SEARCH_MAX_PAGES, 3, 1, 20);
+  const maxPages = options.maxPages ?? intEnv(env.SEARCH_MAX_PAGES, 8, 1, 30);
   const maxCharsPerPage =
-    options.maxCharsPerPage ?? intEnv(env.SEARCH_MAX_CHARS_PER_PAGE, 12_000, 500, 200_000);
+    options.maxCharsPerPage ?? intEnv(env.SEARCH_MAX_CHARS_PER_PAGE, 18_000, 500, 200_000);
   const maxTotalChars =
-    options.maxTotalChars ?? intEnv(env.SEARCH_MAX_TOTAL_CHARS, 30_000, 1_000, 500_000);
+    options.maxTotalChars ?? intEnv(env.SEARCH_MAX_TOTAL_CHARS, 200_000, 1_000, 1_000_000);
 
   const tokens = tokenizeQuery(query);
   const sources: string[] = [];
@@ -250,9 +250,13 @@ export async function searchPackageDocs(
 
   const firstSeed = seeds[0];
   let expanded = false;
+  // README is always included and does not count toward maxPages — that cap
+  // is for *discovered* pages so a generic README doesn't crowd out the docs
+  // we actually went looking for.
+  let discovered = 0;
 
   let i = 0;
-  while (i < queue.length && pages.length < maxPages) {
+  while (i < queue.length && discovered < maxPages) {
     const url = queue[i++]!;
     const got = await safeGet(url, env);
     if (!got) continue;
@@ -289,6 +293,7 @@ export async function searchPackageDocs(
       truncated = true;
     }
     pages.push({ url, title, text, score: score(text, tokens) });
+    discovered += 1;
   }
 
   pages.sort((a, b) => b.score - a.score);

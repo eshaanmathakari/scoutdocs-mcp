@@ -105,7 +105,10 @@ describe("searchPackageDocs", () => {
     const result = await searchPackageDocs("demo", "x", "python", testEnv, {
       maxPages: 2,
     });
-    expect(result!.pages.length).toBeLessThanOrEqual(2);
+    // README is always free; cap applies to discovered pages only.
+    const readmeCount = result!.pages.filter((p) => p.title === "demo README").length;
+    const discovered = result!.pages.length - readmeCount;
+    expect(discovered).toBeLessThanOrEqual(2);
   });
 
   it("filters cross-host sitemap entries", async () => {

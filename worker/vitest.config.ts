@@ -10,9 +10,9 @@ export default defineWorkersConfig({
           bindings: {
             SCOUTDOCS_VERSION: "0.2.0-beta.1-test",
             CACHE_TTL_SECONDS: "60",
-            SEARCH_MAX_PAGES: "3",
-            SEARCH_MAX_CHARS_PER_PAGE: "12000",
-            SEARCH_MAX_TOTAL_CHARS: "30000",
+            SEARCH_MAX_PAGES: "8",
+            SEARCH_MAX_CHARS_PER_PAGE: "18000",
+            SEARCH_MAX_TOTAL_CHARS: "200000",
           },
         },
       },
