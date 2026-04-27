@@ -31,8 +31,11 @@ LLMs are trained on a snapshot — the docs they "know" may be months or years o
 
 ### Local (Python stdio)
 
+`scoutdocs-mcp` is currently a beta release (`0.2.0b1`), so pip and uv need to be told it's OK to install a pre-release:
+
 ```bash
-pip install scoutdocs-mcp        # or: uv tool install scoutdocs-mcp
+pip install --pre scoutdocs-mcp                # or
+uv tool install --prerelease=allow scoutdocs-mcp
 ```
 
 Add to Claude Code's MCP config (`~/.claude/claude_code_config.json`):
@@ -42,13 +45,13 @@ Add to Claude Code's MCP config (`~/.claude/claude_code_config.json`):
   "mcpServers": {
     "scoutdocs": {
       "command": "uvx",
-      "args": ["--from", "scoutdocs-mcp", "scoutdocs-mcp"]
+      "args": ["--from", "scoutdocs-mcp==0.2.0b1", "scoutdocs-mcp"]
     }
   }
 }
 ```
 
-For Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS), use the same shape.
+Once `scoutdocs-mcp` reaches `0.2.0` stable, the `--pre` / version-pin requirement goes away — you'll be able to run `uvx --from scoutdocs-mcp scoutdocs-mcp` directly. For Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS), use the same JSON shape.
 
 ### Hosted (Cloudflare Worker)
 

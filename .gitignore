@@ -7,6 +7,11 @@ build/
 .pytest_cache/
 .cache/
 
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
 # Worker
 worker/node_modules/
 worker/dist/

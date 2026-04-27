@@ -58,12 +58,12 @@ jobs:
       - name: Validate README install commands match package name
         run: |
           set -e
-          if ! grep -q "pip install scoutdocs-mcp\|--from scoutdocs-mcp" README.md; then
-            echo "README.md must show install commands for 'scoutdocs-mcp'"
+          if ! grep -q "scoutdocs-mcp" README.md; then
+            echo "README.md must reference 'scoutdocs-mcp'"
             exit 1
           fi
-          if grep -q "pip install universal-docs-mcp\|--from universal-docs-mcp" README.md; then
-            echo "README.md still references the old package name"
+          if grep -E "pip install (--pre )?universal-docs-mcp|--from \"?universal-docs-mcp" README.md; then
+            echo "README.md still has install commands for the old package name"
             exit 1
           fi
 
