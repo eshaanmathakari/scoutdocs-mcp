@@ -266,6 +266,64 @@ async def test_search_rejects_http_only_seeds(httpx_mock):
     assert all(not p.url.startswith("http://") for p in result.pages)
 
 
+async def test_search_skips_github_ui_pages(httpx_mock):
+    """GitHub repo/readme URLs should not be crawled as HTML docs pages."""
+    payload = {
+        "info": {
+            "name": "demo",
+            "version": "1.0.0",
+            "summary": "demo lib",
+            "description": "README content with search term",
+            "home_page": "https://github.com/example/demo",
+            "docs_url": "https://github.com/example/demo#readme",
+            "license": "MIT",
+            "project_urls": {"Source": "https://github.com/example/demo"},
+        },
+        "releases": {"1.0.0": [{"filename": "x.tar.gz"}]},
+    }
+    httpx_mock.add_response(
+        url="https://pypi.org/pypi/demo/json", json=payload, is_reusable=True
+    )
+
+    result = await search_package_docs("demo", "search term", ecosystem="python")
+
+    assert result is not None
+    assert [p.title for p in result.pages] == ["demo README"]
+    assert "README content" in result.pages[0].text
+
+
+async def test_search_uses_larger_readme_cap(httpx_mock):
+    """Search should not inherit the short get_package_docs README cap."""
+    payload = {
+        "info": {
+            "name": "bigreadme",
+            "version": "1.0.0",
+            "summary": "demo lib",
+            "description": "x" * 10_000,
+            "home_page": None,
+            "docs_url": None,
+            "license": "MIT",
+            "project_urls": {},
+        },
+        "releases": {"1.0.0": [{"filename": "x.tar.gz"}]},
+    }
+    httpx_mock.add_response(
+        url="https://pypi.org/pypi/bigreadme/json", json=payload, is_reusable=True
+    )
+
+    result = await search_package_docs(
+        "bigreadme",
+        "x",
+        ecosystem="python",
+        max_chars_per_page=5_000,
+        max_total_chars=10_000,
+    )
+
+    assert result is not None
+    assert len(result.pages[0].text) > 3_000
+    assert "[truncated]" in result.pages[0].text
+
+
 async def test_search_returns_none_for_missing_package(httpx_mock):
     httpx_mock.add_response(
         url="https://pypi.org/pypi/ghost/json", status_code=404

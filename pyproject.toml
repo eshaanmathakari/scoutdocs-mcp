@@ -1,6 +1,6 @@
 [project]
 name = "scoutdocs-mcp"
-version = "0.2.0b1"
+version = "0.2.0b3"
 description = "MCP server that fetches and searches latest stable documentation for packages on PyPI, npm, and crates.io."
 readme = "README.md"
 license = "MIT"
@@ -23,7 +23,7 @@ classifiers = [
 ]
 dependencies = [
     "mcp>=1.0.0",
-    "httpx>=0.27.0",
+    "httpx>=0.27.0,<1.0.0",
     "pydantic>=2.0.0",
     "packaging>=23.0",
     "tomli>=2.0.0; python_version<'3.11'",

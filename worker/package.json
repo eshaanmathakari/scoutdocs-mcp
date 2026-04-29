@@ -1,6 +1,6 @@
 {
   "name": "scoutdocs-mcp-worker",
-  "version": "0.2.0-beta.1",
+  "version": "0.2.0-beta.3",
   "private": true,
   "description": "Public hosted MCP endpoint for scoutdocs-mcp (Cloudflare Worker).",
   "type": "module",

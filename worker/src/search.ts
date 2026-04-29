@@ -4,7 +4,7 @@
  * text/link extraction and tighter caps suited to free-tier Worker limits.
  */
 
-import { fetchReadmeFor } from "./docs.js";
+import { fetchReadmeFor, isGitHubRepoUrl } from "./docs.js";
 import { fetchPackage } from "./registries.js";
 import type { Env, SearchPage, SearchResult } from "./types.js";
 
@@ -206,7 +206,7 @@ export async function searchPackageDocs(
   };
 
   // README first
-  const readme = await fetchReadmeFor(info, env);
+  const readme = await fetchReadmeFor(info, env, maxCharsPerPage);
   if (readme) {
     let text = readme;
     if (text.length > maxCharsPerPage) {
@@ -226,7 +226,7 @@ export async function searchPackageDocs(
   }
 
   const seeds = [info.docs_url, info.homepage].filter(
-    (u): u is string => !!u && u.startsWith("https://"),
+    (u): u is string => !!u && u.startsWith("https://") && !isGitHubRepoUrl(u),
   );
   for (const seed of seeds) enqueue(seed);
 

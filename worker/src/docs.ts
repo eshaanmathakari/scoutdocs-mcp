@@ -9,7 +9,29 @@ function ua(env: Env): string {
   return `scoutdocs-mcp-worker/${env.SCOUTDOCS_VERSION} (+https://github.com/eshaanmathakari/scoutdocs-mcp)`;
 }
 
-export async function fetchPyPIDescription(name: string, env: Env): Promise<string | null> {
+function truncateText(text: string, maxChars: number, marker = "\n\n... [truncated]"): string {
+  return text.length > maxChars ? text.slice(0, maxChars) + marker : text;
+}
+
+export function isGitHubRepoUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.protocol === "https:" &&
+      parsed.hostname === "github.com" &&
+      parsed.pathname.split("/").filter(Boolean).length >= 2
+    );
+  } catch {
+    return false;
+  }
+}
+
+export async function fetchPyPIDescription(
+  name: string,
+  env: Env,
+  maxChars = README_TRUNCATE,
+): Promise<string | null> {
   const resp = await safeFetch(
     `https://pypi.org/pypi/${encodeURIComponent(name)}/json`,
     env,
@@ -18,23 +40,27 @@ export async function fetchPyPIDescription(name: string, env: Env): Promise<stri
   const data = (await resp.json()) as { info?: { description?: string } };
   const desc = data.info?.description ?? "";
   if (!desc) return null;
-  return desc.length > README_TRUNCATE
-    ? desc.slice(0, README_TRUNCATE) + "\n\n... [truncated]"
-    : desc;
+  return truncateText(desc, maxChars);
 }
 
-export async function fetchNpmReadme(name: string, env: Env): Promise<string | null> {
+export async function fetchNpmReadme(
+  name: string,
+  env: Env,
+  maxChars = README_TRUNCATE,
+): Promise<string | null> {
   const resp = await safeFetch(`https://registry.npmjs.org/${encodeURIComponent(name)}`, env);
   if (!resp) return null;
   const data = (await resp.json()) as { readme?: string };
   const readme = data.readme ?? "";
   if (!readme || readme === "ERROR: No README data found!") return null;
-  return readme.length > README_TRUNCATE
-    ? readme.slice(0, README_TRUNCATE) + "\n\n... [truncated]"
-    : readme;
+  return truncateText(readme, maxChars);
 }
 
-export async function fetchGitHubReadme(repoUrl: string | null, env: Env): Promise<string | null> {
+export async function fetchGitHubReadme(
+  repoUrl: string | null,
+  env: Env,
+  maxChars = README_TRUNCATE,
+): Promise<string | null> {
   if (!repoUrl) return null;
   const match = /github\.com\/([^/]+\/[^/]+)/.exec(repoUrl);
   if (!match) return null;
@@ -47,20 +73,28 @@ export async function fetchGitHubReadme(repoUrl: string | null, env: Env): Promi
   });
   if (!resp) return null;
   const text = await resp.text();
-  return text.length > README_TRUNCATE
-    ? text.slice(0, README_TRUNCATE) + "\n\n... [truncated — see full docs]"
-    : text;
+  return truncateText(text, maxChars, "\n\n... [truncated — see full docs]");
 }
 
-export async function fetchReadmeFor(info: PackageInfo, env: Env): Promise<string | null> {
+export async function fetchReadmeFor(
+  info: PackageInfo,
+  env: Env,
+  maxChars = README_TRUNCATE,
+): Promise<string | null> {
   if (info.ecosystem === "python") {
-    const text = await fetchPyPIDescription(info.name, env);
+    const text = await fetchPyPIDescription(info.name, env, maxChars);
     if (text) return text;
   } else if (info.ecosystem === "javascript") {
-    const text = await fetchNpmReadme(info.name, env);
+    const text = await fetchNpmReadme(info.name, env, maxChars);
     if (text) return text;
   }
-  return await fetchGitHubReadme(info.repository, env);
+  for (const url of [info.repository, info.docs_url, info.homepage]) {
+    if (isGitHubRepoUrl(url)) {
+      const text = await fetchGitHubReadme(url, env, maxChars);
+      if (text) return text;
+    }
+  }
+  return null;
 }
 
 async function safeFetch(url: string, env: Env, init?: RequestInit): Promise<Response | null> {

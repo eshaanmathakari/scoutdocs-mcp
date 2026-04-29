@@ -8,11 +8,12 @@ export default defineWorkersConfig({
         miniflare: {
           // Provide deterministic env for tests; rate-limiters are mocked via SELF.
           bindings: {
-            SCOUTDOCS_VERSION: "0.2.0-beta.1-test",
+            SCOUTDOCS_VERSION: "0.2.0-beta.3-test",
             CACHE_TTL_SECONDS: "60",
             SEARCH_MAX_PAGES: "8",
             SEARCH_MAX_CHARS_PER_PAGE: "18000",
             SEARCH_MAX_TOTAL_CHARS: "200000",
+            ALLOWED_ORIGINS: "",
           },
         },
       },

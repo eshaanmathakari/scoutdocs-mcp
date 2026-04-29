@@ -144,4 +144,71 @@ describe("searchPackageDocs", () => {
     const urls = result!.pages.map((p) => p.url);
     expect(urls.some((u) => u.includes("other-host.com"))).toBe(false);
   });
+
+  it("skips GitHub UI pages when registry URLs point at a repo", async () => {
+    const payload = {
+      info: {
+        ...PYPI_PAYLOAD.info,
+        home_page: "https://github.com/example/demo",
+        docs_url: "https://github.com/example/demo#readme",
+        description: "README content with search term",
+        project_urls: { Source: "https://github.com/example/demo" },
+      },
+      releases: PYPI_PAYLOAD.releases,
+    };
+
+    mockFetch(async (req) => {
+      if (req.url === "https://pypi.org/pypi/demo/json") {
+        return new Response(JSON.stringify(payload), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (req.url.startsWith("https://github.com/")) {
+        return new Response("GitHub UI should not be crawled", { status: 500 });
+      }
+      return new Response("not mocked", { status: 404 });
+    });
+
+    const result = await searchPackageDocs(
+      "demo",
+      "search term",
+      "python",
+      testEnv,
+      { maxPages: 5 },
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.pages.map((p) => p.title)).toEqual(["demo README"]);
+    expect(result!.pages[0]!.text).toContain("README content");
+  });
+
+  it("uses the search page cap for README content", async () => {
+    const payload = {
+      info: {
+        ...PYPI_PAYLOAD.info,
+        docs_url: null,
+        description: "x".repeat(10_000),
+        project_urls: {},
+      },
+      releases: PYPI_PAYLOAD.releases,
+    };
+
+    mockFetch(async (req) => {
+      if (req.url === "https://pypi.org/pypi/demo/json") {
+        return new Response(JSON.stringify(payload), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response("not mocked", { status: 404 });
+    });
+
+    const result = await searchPackageDocs("demo", "x", "python", testEnv, {
+      maxCharsPerPage: 5_000,
+      maxTotalChars: 10_000,
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.pages[0]!.text.length).toBeGreaterThan(3_000);
+    expect(result!.pages[0]!.text).toContain("[truncated]");
+  });
 });

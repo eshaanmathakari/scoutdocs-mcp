@@ -1,7 +1,7 @@
 /** Tests for the MCP JSON-RPC dispatch (uses miniflare's KV; mocks fetch). */
 
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { env } from "cloudflare:test";
+import { env, SELF } from "cloudflare:test";
 
 import { dispatchMcp } from "../src/mcp";
 import type { Env } from "../src/types";
@@ -208,5 +208,35 @@ describe("notifications", () => {
       testEnv,
     );
     expect(resp).toBeNull();
+  });
+});
+
+describe("HTTP transport", () => {
+  it("returns 202 for accepted notifications", async () => {
+    const resp = await SELF.fetch("https://example.com/mcp", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "notifications/initialized",
+      }),
+    });
+
+    expect(resp.status).toBe(202);
+    expect(await resp.text()).toBe("");
+  });
+
+  it("rejects browser origins unless explicitly allowed", async () => {
+    const resp = await SELF.fetch("https://example.com/mcp", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        Origin: "https://attacker.example",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
+    });
+
+    expect(resp.status).toBe(403);
+    expect(await resp.text()).toContain("origin not allowed");
   });
 });

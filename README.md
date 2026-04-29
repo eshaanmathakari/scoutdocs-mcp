@@ -31,7 +31,7 @@ LLMs are trained on a snapshot — the docs they "know" may be months or years o
 
 ### Local (Python stdio)
 
-`scoutdocs-mcp` is currently a beta release (`0.2.0b1`), so pip and uv need to be told it's OK to install a pre-release:
+`scoutdocs-mcp` is currently a beta release (`0.2.0b3`), so pip and uv need to be told it's OK to install a pre-release:
 
 ```bash
 pip install --pre scoutdocs-mcp                # or
@@ -45,7 +45,7 @@ Add to Claude Code's MCP config (`~/.claude/claude_code_config.json`):
   "mcpServers": {
     "scoutdocs": {
       "command": "uvx",
-      "args": ["--from", "scoutdocs-mcp==0.2.0b1", "scoutdocs-mcp"]
+      "args": ["--from", "scoutdocs-mcp==0.2.0b3", "scoutdocs-mcp"]
     }
   }
 }
@@ -58,7 +58,7 @@ Once `scoutdocs-mcp` reaches `0.2.0` stable, the `--pre` / version-pin requireme
 Point any MCP client at the public Streamable HTTP endpoint:
 
 ```
-https://scoutdocs-mcp.<workers-subdomain>.workers.dev/mcp
+https://scoutdocs-mcp.solmonger.workers.dev/mcp
 ```
 
 The hosted endpoint is unauthenticated and rate-limited (60 MCP req/min, 10 search req/min per client IP). Search results are capped tighter than local (8 discovered pages × 18k chars / 200k total backstop) but well within Cloudflare free-tier headroom.
@@ -120,7 +120,7 @@ docs/RELEASE.md       Release & deployment runbook
 
 ## Status
 
-Beta (`0.2.0b1`). API stable; some discovery sources may evolve. Filed issues welcome at <https://github.com/eshaanmathakari/scoutdocs-mcp/issues>.
+Beta (`0.2.0b3`). API stable; some discovery sources may evolve. Filed issues welcome at <https://github.com/eshaanmathakari/scoutdocs-mcp/issues>.
 
 ## License
 

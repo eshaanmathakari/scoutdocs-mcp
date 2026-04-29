@@ -6,28 +6,50 @@
  *   OPTIONS /mcp      CORS preflight
  *
  * Streamable HTTP at /mcp without sessions. Tools are stateless, so each POST
- * is a self-contained request/response. Notifications (no `id`) get HTTP 204.
+ * is a self-contained request/response. Notifications (no `id`) get HTTP 202.
  */
 
 import { dispatchMcp, getToolByName } from "./mcp.js";
 import type { JsonRpcRequest } from "./mcp.js";
 import type { Env } from "./types.js";
 
-const CORS_HEADERS: Record<string, string> = {
-  "Access-Control-Allow-Origin": "*",
+const BASE_CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Mcp-Session-Id, Authorization",
+  "Access-Control-Allow-Headers":
+    "Content-Type, MCP-Protocol-Version, Mcp-Session-Id, Authorization, Last-Event-ID",
   "Access-Control-Max-Age": "86400",
+  Vary: "Origin",
 };
 
-function jsonResponse(body: unknown, status = 200): Response {
+function jsonResponse(body: unknown, headers: Record<string, string>, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
       "content-type": "application/json",
-      ...CORS_HEADERS,
+      ...headers,
     },
   });
+}
+
+function configuredOrigins(env: Env): string[] {
+  return (env.ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean);
+}
+
+function originAllowed(request: Request, env: Env): boolean {
+  const origin = request.headers.get("Origin");
+  if (!origin) return true;
+  const allowed = configuredOrigins(env);
+  return allowed.includes("*") || allowed.includes(origin);
+}
+
+function corsHeaders(request: Request, env: Env): Record<string, string> {
+  const origin = request.headers.get("Origin");
+  const allowed = configuredOrigins(env);
+  const allowOrigin = origin && (allowed.includes("*") || allowed.includes(origin)) ? origin : "*";
+  return { ...BASE_CORS_HEADERS, "Access-Control-Allow-Origin": allowOrigin };
 }
 
 function clientKey(request: Request): string {
@@ -52,24 +74,32 @@ async function checkRateLimit(
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    const cors = corsHeaders(request, env);
 
     if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: CORS_HEADERS });
+      if (!originAllowed(request, env)) {
+        return new Response("origin not allowed", { status: 403, headers: cors });
+      }
+      return new Response(null, { status: 204, headers: cors });
     }
 
     if (url.pathname === "/" && request.method === "GET") {
       return new Response(
         `scoutdocs-mcp ${env.SCOUTDOCS_VERSION}\nPOST JSON-RPC to /mcp\n`,
-        { status: 200, headers: { "content-type": "text/plain", ...CORS_HEADERS } },
+        { status: 200, headers: { "content-type": "text/plain", ...cors } },
       );
     }
 
     if (url.pathname !== "/mcp") {
-      return new Response("not found", { status: 404, headers: CORS_HEADERS });
+      return new Response("not found", { status: 404, headers: cors });
     }
 
     if (request.method !== "POST") {
-      return new Response("method not allowed", { status: 405, headers: CORS_HEADERS });
+      return new Response("method not allowed", { status: 405, headers: cors });
+    }
+
+    if (!originAllowed(request, env)) {
+      return new Response("origin not allowed", { status: 403, headers: cors });
     }
 
     // Always charge the general bucket. Charge the search bucket too if the
@@ -78,6 +108,7 @@ export default {
     if (!(await checkRateLimit(request, env, "general"))) {
       return jsonResponse(
         { jsonrpc: "2.0", id: null, error: { code: -32029, message: "rate limit exceeded" } },
+        cors,
         429,
       );
     }
@@ -88,6 +119,7 @@ export default {
     } catch {
       return jsonResponse(
         { jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } },
+        cors,
         400,
       );
     }
@@ -95,6 +127,7 @@ export default {
     if (!isJsonRpcRequest(body)) {
       return jsonResponse(
         { jsonrpc: "2.0", id: null, error: { code: -32600, message: "invalid request" } },
+        cors,
         400,
       );
     }
@@ -111,6 +144,7 @@ export default {
                 id: body.id ?? null,
                 error: { code: -32029, message: "search rate limit exceeded" },
               },
+              cors,
               429,
             );
           }
@@ -120,10 +154,10 @@ export default {
 
     const response = await dispatchMcp(body, env);
     if (response === null) {
-      // Notification — JSON-RPC says no response body.
-      return new Response(null, { status: 204, headers: CORS_HEADERS });
+      // Notification — accepted, with no response body.
+      return new Response(null, { status: 202, headers: cors });
     }
-    return jsonResponse(response, 200);
+    return jsonResponse(response, cors, 200);
   },
 } satisfies ExportedHandler<Env>;
 

@@ -33,6 +33,7 @@ from .docs_fetcher import (
     fetch_npm_readme,
     fetch_pypi_description,
     fetch_readme_from_github,
+    is_github_repo_url,
 )
 from .registries import PackageInfo, fetch_package
 
@@ -288,7 +289,7 @@ async def search_package_docs(
         follow_redirects=True,
     ) as client:
         # Always include the README/long description as a first page.
-        readme_text = await _readme_for(info)
+        readme_text = await _readme_for(info, truncate_at=max_chars_per_page)
         if readme_text:
             if len(readme_text) > max_chars_per_page:
                 readme_text = readme_text[:max_chars_per_page] + "\n\n... [truncated]"
@@ -311,7 +312,9 @@ async def search_package_docs(
             )
 
         seeds: list[str] = [
-            u for u in (info.docs_url, info.homepage) if u and u.startswith("https://")
+            u
+            for u in (info.docs_url, info.homepage)
+            if u and u.startswith("https://") and not is_github_repo_url(u)
         ]
 
         for seed in seeds:
@@ -405,15 +408,20 @@ async def search_package_docs(
     )
 
 
-async def _readme_for(info: PackageInfo) -> Optional[str]:
+async def _readme_for(
+    info: PackageInfo, truncate_at: int = DEFAULT_CHARS_PER_PAGE
+) -> Optional[str]:
     if info.ecosystem == "python":
-        text = await fetch_pypi_description(info.name)
+        text = await fetch_pypi_description(info.name, truncate_at=truncate_at)
         if text:
             return text
     elif info.ecosystem in ("javascript", "typescript"):
-        text = await fetch_npm_readme(info.name)
+        text = await fetch_npm_readme(info.name, truncate_at=truncate_at)
         if text:
             return text
-    if info.repository:
-        return await fetch_readme_from_github(info.repository)
+    for url in (info.repository, info.docs_url, info.homepage):
+        if is_github_repo_url(url):
+            text = await fetch_readme_from_github(url or "", truncate_at=truncate_at)
+            if text:
+                return text
     return None

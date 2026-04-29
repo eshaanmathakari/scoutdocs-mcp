@@ -8,6 +8,7 @@ export interface Env {
   SEARCH_MAX_PAGES: string;
   SEARCH_MAX_CHARS_PER_PAGE: string;
   SEARCH_MAX_TOTAL_CHARS: string;
+  ALLOWED_ORIGINS?: string;
 }
 
 export interface RateLimit {
