@@ -27,6 +27,23 @@ LLMs are trained on a snapshot — the docs they "know" may be months or years o
 | `detect_project_dependencies` | local only | Reads pyproject/requirements/uv.lock, package.json/package-lock, Cargo.toml/Cargo.lock |
 | `cache_stats` | local only | Local SQLite cache stats |
 
+### Exact versions
+
+`get_package_info` and `get_package_docs` accept an optional exact `version` argument (local server):
+
+```
+> get_package_docs package="requests" version="2.31.0"
+```
+
+An exact version is served exactly or not at all: it is never silently replaced
+by the latest stable release. Responses carry the version binding and source
+URL, unknown versions fail with an explicit message, and cache entries for one
+version are never served for another. If a project pins a dependency, pass the
+`declared_version` from `detect_project_dependencies` to read the docs for the
+release it actually pins.
+
+Exact-version support is local-only for now; the hosted worker serves latest-stable.
+
 ## Quickstart
 
 ### Local (Python stdio)
@@ -68,6 +85,7 @@ The hosted endpoint is unauthenticated and rate-limited (60 MCP req/min, 10 sear
 ```
 > What's the latest version of flask?
 > Show me the docs for the serde crate
+> Show me the docs for requests 2.31.0 — the exact version my project pins
 > Search the httpx docs for "transport"
 > What dependencies does this project declare?
 ```

@@ -1,6 +1,6 @@
 [project]
 name = "scoutdocs-mcp"
-version = "0.2.0b3"
+version = "0.2.0b4"
 description = "MCP server that fetches and searches latest stable documentation for packages on PyPI, npm, and crates.io."
 readme = "README.md"
 license = "MIT"
