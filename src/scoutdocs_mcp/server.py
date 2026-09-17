@@ -1,17 +1,20 @@
 """scoutdocs-mcp server (stdio).
 
 Tools exposed to the MCP client:
-  get_package_info             Latest stable version + metadata
-  get_package_docs             README / long description content
+  get_package_info             Latest stable version + metadata, or an exact version
+  get_package_docs             README / long description content, or an exact version
   search_package_docs          Bounded discovery across docs sites
   detect_project_dependencies  Inspect local manifests/lockfiles
   cache_stats                  Local cache statistics
+
+An exact version is served exactly or not at all: it is never silently
+replaced with the latest stable release.
 """
 
 import asyncio
 import json
 import logging
-from typing import Any
+from typing import Any, Optional
 
 import mcp.server.stdio
 import mcp.types as types
@@ -20,9 +23,10 @@ from mcp.server import Server
 from pathlib import Path
 
 from .registries import fetch_package, REGISTRY_MAP
-from .docs_fetcher import fetch_docs_content
+from .docs_fetcher import fetch_docs_content_with_provenance
 from .cache import DocsCache
 from .manifests import detect_project_dependencies
+from .versions import InvalidExactVersion, validate_version
 from .search import (
     DEFAULT_MAX_PAGES,
     DEFAULT_CHARS_PER_PAGE,
@@ -45,7 +49,8 @@ async def list_tools() -> list[types.Tool]:
             description=(
                 "Get metadata for a package: latest stable version, description, "
                 "docs URL, repository, license. Supports Python (PyPI), "
-                "JavaScript/TypeScript (npm), and Rust (crates.io)."
+                "JavaScript/TypeScript (npm), and Rust (crates.io). Pass 'version' "
+                "to describe one exact release instead of the latest."
             ),
             inputSchema={
                 "type": "object",
@@ -59,6 +64,14 @@ async def list_tools() -> list[types.Tool]:
                         "description": "Language/ecosystem: python, javascript, typescript, rust. Auto-detected if omitted.",
                         "enum": list(set(REGISTRY_MAP.keys())),
                     },
+                    "version": {
+                        "type": "string",
+                        "description": (
+                            "Exact version to describe (e.g., '8.1.7'). Omit for the latest "
+                            "stable release. An exact version is served exactly or not at "
+                            "all — it is never silently replaced by latest."
+                        ),
+                    },
                 },
                 "required": ["package"],
             },
@@ -67,7 +80,8 @@ async def list_tools() -> list[types.Tool]:
             name="get_package_docs",
             description=(
                 "Fetch actual documentation content for a package. Returns README "
-                "or description text. Use get_package_info first to check version."
+                "or description text. Use get_package_info first to check version. "
+                "Pass 'version' to read one exact release's documentation."
             ),
             inputSchema={
                 "type": "object",
@@ -80,6 +94,14 @@ async def list_tools() -> list[types.Tool]:
                         "type": "string",
                         "description": "Language/ecosystem (auto-detected if omitted)",
                         "enum": list(set(REGISTRY_MAP.keys())),
+                    },
+                    "version": {
+                        "type": "string",
+                        "description": (
+                            "Exact version to read (e.g., '8.1.7'). Omit for the latest "
+                            "stable release. An exact version is served exactly or not at "
+                            "all — content from another version is never substituted."
+                        ),
                     },
                 },
                 "required": ["package"],
@@ -122,7 +144,9 @@ async def list_tools() -> list[types.Tool]:
                 "Inspect manifests/lockfiles in a local project directory and return "
                 "the declared dependencies. Supports Python (pyproject.toml, "
                 "requirements*.txt, uv.lock), npm (package.json, package-lock.json), "
-                "and Rust (Cargo.toml, Cargo.lock). Local-only — runs on the user's machine."
+                "and Rust (Cargo.toml, Cargo.lock). Local-only — runs on the user's machine. "
+                "Pair a declared_version with get_package_docs(version=...) to read the "
+                "docs for the version the project actually pins."
             ),
             inputSchema={
                 "type": "object",
@@ -144,7 +168,6 @@ async def list_tools() -> list[types.Tool]:
             inputSchema={"type": "object", "properties": {}},
         ),
     ]
-
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
@@ -218,33 +241,96 @@ async def _handle_search(args: dict) -> list[types.TextContent]:
     return [types.TextContent(type="text", text=rendered)]
 
 
+def _invalid_version_text(package: str, raw: object) -> str:
+    return (
+        f"'{raw}' is not an exact version, so nothing was fetched for "
+        f"'{package}'. Pass a version like '8.1.7', or omit 'version' to use "
+        f"the latest stable release."
+    )
+
+
+def _exact_not_found_text(
+    package: str, ecosystem: Optional[str], version: str, *, what: str
+) -> str:
+    target = package + (f" in {ecosystem}" if ecosystem else " in any registry")
+    return (
+        f"Version '{version}' not found for package {target}. "
+        f"No other version's {what} was substituted."
+    )
+
+
+def _requested_version(args: dict) -> Optional[str]:
+    """Return the validated exact version, or None when the latest is wanted.
+
+    Raises InvalidExactVersion for anything that is not an exact version.
+    """
+    raw = args.get("version")
+    if raw is None:
+        return None
+    return validate_version(raw)
+
+
 async def _handle_get_info(args: dict) -> list[types.TextContent]:
     package = args["package"]
     ecosystem = args.get("ecosystem")
 
-    cache_key = f"info:{ecosystem or 'auto'}:{package}"
+    try:
+        version = _requested_version(args)
+    except InvalidExactVersion:
+        return [
+            types.TextContent(
+                type="text",
+                text=_invalid_version_text(package, args.get("version")),
+            )
+        ]
+
+    cache_key = f"info:{ecosystem or 'auto'}:{package}@{version or 'latest'}"
     cached = cache.get(cache_key)
     if cached:
         cached["_cached"] = True
         return [types.TextContent(type="text", text=json.dumps(cached, indent=2))]
 
-    info = await fetch_package(package, ecosystem)
+    info = await fetch_package(package, ecosystem, version)
     if not info:
+        if version is not None:
+            return [
+                types.TextContent(
+                    type="text",
+                    text=_exact_not_found_text(
+                        package, ecosystem, version, what="metadata"
+                    ),
+                )
+            ]
         return [types.TextContent(
             type="text",
             text=f"Package '{package}' not found" + (f" in {ecosystem}" if ecosystem else " in any registry"),
         )]
 
-    result = {
-        "name": info.name,
-        "ecosystem": info.ecosystem,
-        "latest_stable": info.latest_stable,
-        "description": info.description,
-        "docs_url": info.docs_url,
-        "repository": info.repository,
-        "homepage": info.homepage,
-        "license": info.license,
-    }
+    if version is not None:
+        result = {
+            "name": info.name,
+            "ecosystem": info.ecosystem,
+            "requested_version": version,
+            "resolved_version": info.version or version,
+            "version_source": "exact",
+            "description": info.description,
+            "docs_url": info.docs_url,
+            "repository": info.repository,
+            "homepage": info.homepage,
+            "license": info.license,
+        }
+    else:
+        result = {
+            "name": info.name,
+            "ecosystem": info.ecosystem,
+            "latest_stable": info.latest_stable,
+            "version_source": "latest_stable",
+            "description": info.description,
+            "docs_url": info.docs_url,
+            "repository": info.repository,
+            "homepage": info.homepage,
+            "license": info.license,
+        }
     cache.set(cache_key, result)
     return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
 
@@ -253,43 +339,71 @@ async def _handle_get_docs(args: dict) -> list[types.TextContent]:
     package = args["package"]
     ecosystem = args.get("ecosystem")
 
-    cache_key = f"docs:{ecosystem or 'auto'}:{package}"
+    try:
+        version = _requested_version(args)
+    except InvalidExactVersion:
+        return [
+            types.TextContent(
+                type="text",
+                text=_invalid_version_text(package, args.get("version")),
+            )
+        ]
+
+    cache_key = f"docs:{ecosystem or 'auto'}:{package}@{version or 'latest'}"
     cached = cache.get(cache_key)
     if cached:
         return [types.TextContent(type="text", text=cached.get("content", "No docs cached"))]
 
-    # First get package info
-    info = await fetch_package(package, ecosystem)
+    # Package info first: it resolves the ecosystem and the source URLs for
+    # the requested version, and proves the version exists.
+    info = await fetch_package(package, ecosystem, version)
     if not info:
+        if version is not None:
+            return [
+                types.TextContent(
+                    type="text",
+                    text=_exact_not_found_text(
+                        package, ecosystem, version, what="documentation"
+                    ),
+                )
+            ]
         return [types.TextContent(
             type="text",
             text=f"Package '{package}' not found",
         )]
 
-    content = await fetch_docs_content(
+    document = await fetch_docs_content_with_provenance(
         package=info.name,
         ecosystem=info.ecosystem,
         docs_url=info.docs_url,
         repo_url=info.repository,
+        version=version,
     )
 
-    if not content:
-        msg = f"No documentation content found for {info.name} ({info.ecosystem})"
+    resolved = info.version if version is not None else info.latest_stable
+
+    if not document:
+        label = f"{info.name} v{resolved}" if resolved else info.name
+        msg = f"No documentation content found for {label} ({info.ecosystem})"
+        if version is not None:
+            msg += "\nNo content from another version was substituted."
         if info.docs_url:
             msg += f"\nDocs URL: {info.docs_url}"
         if info.repository:
             msg += f"\nRepository: {info.repository}"
         return [types.TextContent(type="text", text=msg)]
 
-    header = (
-        f"# {info.name} v{info.latest_stable} ({info.ecosystem})\n"
-        f"License: {info.license or 'unknown'}\n"
-    )
+    if version is not None:
+        header = f"# {info.name} v{resolved} ({info.ecosystem})\nVersion: exact ({version})\n"
+    else:
+        header = f"# {info.name} v{resolved} ({info.ecosystem})\nVersion: latest stable\n"
+    header += f"License: {info.license or 'unknown'}\n"
+    header += f"Source: {document.source} ({document.source_url})\n"
     if info.docs_url:
         header += f"Docs: {info.docs_url}\n"
     header += "\n---\n\n"
 
-    full_content = header + content
+    full_content = header + document.content
     cache.set(cache_key, {"content": full_content})
     return [types.TextContent(type="text", text=full_content)]
 
