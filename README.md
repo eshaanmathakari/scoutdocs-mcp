@@ -1,6 +1,6 @@
 # scoutdocs-mcp
 
-MCP server that fetches and **searches** the latest stable documentation for any package. Keeps AI coding agents in sync with current APIs instead of relying on stale training data.
+MCP server that fetches and **searches** current documentation for any package — the latest stable release by default, or one exact version on request. Keeps AI coding agents in sync with current APIs instead of relying on stale training data.
 
 Two ways to run it:
 
@@ -9,7 +9,7 @@ Two ways to run it:
 
 ## Why
 
-LLMs are trained on a snapshot — the docs they "know" may be months or years old. scoutdocs-mcp gives any MCP client live access to the latest stable version info, READMEs, and search results across docs sites for packages on **PyPI**, **npm**, and **crates.io**.
+LLMs are trained on a snapshot — the docs they "know" may be months or years old. scoutdocs-mcp gives any MCP client live access to version info, READMEs, and search results across docs sites for packages on **PyPI**, **npm**, and **crates.io** — including exact-version lookups that never fall back to a different release.
 
 ## How it works
 
@@ -21,34 +21,57 @@ LLMs are trained on a snapshot — the docs they "know" may be months or years o
 
 | Tool | Where | What it does |
 |------|-------|--------------|
-| `get_package_info` | local + hosted | Latest stable version, docs URL, repo, license |
-| `get_package_docs` | local + hosted | README / long-description content |
+| `get_package_info` | local + hosted | Latest stable version + metadata; optional exact `version` (local) |
+| `get_package_docs` | local + hosted | README / long-description content; optional exact `version` (local) |
 | `search_package_docs` | local + hosted | Bounded discovery: docs URL, `llms.txt` / `llms-full.txt`, sitemap, same-host links — ranks pages by query match |
 | `detect_project_dependencies` | local only | Reads pyproject/requirements/uv.lock, package.json/package-lock, Cargo.toml/Cargo.lock |
 | `cache_stats` | local only | Local SQLite cache stats |
 
 ### Exact versions
 
-`get_package_info` and `get_package_docs` accept an optional exact `version` argument (local server):
+Both doc tools take an optional exact `version` (local server). The rule is simple: **served exactly, or not at all** — the latest release is never silently substituted.
+
+```mermaid
+flowchart LR
+  A["ask: package @ 2.31.0"] --> B{"version exists<br/>on the registry?"}
+  B -->|"yes"| C["docs for exactly 2.31.0<br/>+ source URL in the reply"]
+  B -->|"no"| D["explicit not-found<br/>no substitution"]
+```
 
 ```
-> get_package_docs package="requests" version="2.31.0"
+> get_package_docs package="click" version="8.1.7"
 ```
 
-An exact version is served exactly or not at all: it is never silently replaced
-by the latest stable release. Responses carry the version binding and source
-URL, unknown versions fail with an explicit message, and cache entries for one
-version are never served for another. If a project pins a dependency, pass the
-`declared_version` from `detect_project_dependencies` to read the docs for the
-release it actually pins.
+The reply says what it is and where it came from:
 
-Exact-version support is local-only for now; the hosted worker serves latest-stable.
+```
+# click v8.1.7 (python)
+Version: exact (8.1.7)
+License: BSD-3-Clause
+Source: pypi_description (https://pypi.org/pypi/click/8.1.7/json)
+Docs: https://click.palletsprojects.com/
+
+---
+
+$ click_
+==========
+Click is a Python package for creating beautiful command line interfaces…
+```
+
+What that buys you when a version matters:
+
+- Unknown version → explicit "not found". Latest is never substituted.
+- `version="latest"` is refused — pass a real version, or omit `version` to get latest stable.
+- Cache entries are per-version: one version's docs are never served for another.
+- On a pinned project, feed the `declared_version` from `detect_project_dependencies` into `version=` to read exactly what the project builds with.
+
+> Exact versions run in the **local server**; the hosted endpoint serves latest stable.
 
 ## Quickstart
 
 ### Local (Python stdio)
 
-`scoutdocs-mcp` is currently a beta release (`0.2.0b3`), so pip and uv need to be told it's OK to install a pre-release:
+`scoutdocs-mcp` is currently a beta (`0.2.0b4`), so pip and uv need to be told pre-releases are OK:
 
 ```bash
 pip install --pre scoutdocs-mcp                # or
@@ -62,13 +85,13 @@ Add to Claude Code's MCP config (`~/.claude/claude_code_config.json`):
   "mcpServers": {
     "scoutdocs": {
       "command": "uvx",
-      "args": ["--from", "scoutdocs-mcp==0.2.0b3", "scoutdocs-mcp"]
+      "args": ["--prerelease", "allow", "--from", "scoutdocs-mcp", "scoutdocs-mcp"]
     }
   }
 }
 ```
 
-Once `scoutdocs-mcp` reaches `0.2.0` stable, the `--pre` / version-pin requirement goes away — you'll be able to run `uvx --from scoutdocs-mcp scoutdocs-mcp` directly. For Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS), use the same JSON shape.
+This runs the newest beta without pinning a version; change the `--from` value to `scoutdocs-mcp==0.2.0b4` if you'd rather freeze it. Once `scoutdocs-mcp` reaches `0.2.0` stable, the `--pre` / `--prerelease` flags go away. For Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS), use the same JSON shape.
 
 ### Hosted (Cloudflare Worker)
 
@@ -138,7 +161,7 @@ docs/RELEASE.md       Release & deployment runbook
 
 ## Status
 
-Beta (`0.2.0b3`). API stable; some discovery sources may evolve. Filed issues welcome at <https://github.com/eshaanmathakari/scoutdocs-mcp/issues>.
+Beta (`0.2.0b4`). API stable; some discovery sources may evolve. Filed issues welcome at <https://github.com/eshaanmathakari/scoutdocs-mcp/issues>.
 
 ## License
 
