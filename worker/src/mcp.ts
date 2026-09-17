@@ -12,10 +12,11 @@
  */
 
 import { cacheGet, cachePut } from "./cache.js";
-import { fetchReadmeFor } from "./docs.js";
+import { fetchReadmeForWithProvenance } from "./docs.js";
 import { ECOSYSTEMS, fetchPackage } from "./registries.js";
 import { renderSearchResult, searchPackageDocs } from "./search.js";
 import type { Env } from "./types.js";
+import { InvalidExactVersion, validateVersion } from "./versions.js";
 
 const PROTOCOL_VERSION = "2025-03-26";
 
@@ -46,11 +47,42 @@ interface ToolDef {
   rateLimitBucket: "general" | "search";
 }
 
+const VERSION_PROPERTY = {
+  type: "string",
+  description:
+    "Exact version (e.g. '8.1.7'). Omit for the latest stable release. An exact version is served exactly or not at all — it is never silently replaced by latest.",
+};
+
+/** The validated exact version, or null when the latest is wanted.
+ * Throws InvalidExactVersion for anything that is not an exact version. */
+function parseRequestedVersion(args: Record<string, unknown>): string | null {
+  const raw = args.version;
+  if (raw === undefined || raw === null) return null;
+  return validateVersion(raw);
+}
+
+function invalidVersionText(pkg: string, raw: unknown): string {
+  return (
+    `'${String(raw)}' is not an exact version, so nothing was fetched for '${pkg}'. ` +
+    `Pass a version like '8.1.7', or omit 'version' to use the latest stable release.`
+  );
+}
+
+function exactNotFoundText(
+  pkg: string,
+  ecosystem: string | undefined,
+  version: string,
+  what: "metadata" | "documentation",
+): string {
+  const target = pkg + (ecosystem ? ` in ${ecosystem}` : " in any registry");
+  return `Version '${version}' not found for package ${target}. No other version's ${what} was substituted.`;
+}
+
 const TOOLS: ToolDef[] = [
   {
     name: "get_package_info",
     description:
-      "Latest stable version + metadata for a package on PyPI, npm, or crates.io.",
+      "Latest stable version + metadata for a package on PyPI, npm, or crates.io. Pass 'version' to describe one exact release instead of the latest.",
     inputSchema: {
       type: "object",
       properties: {
@@ -60,6 +92,7 @@ const TOOLS: ToolDef[] = [
           description: "Language/ecosystem (auto-detected if omitted)",
           enum: ECOSYSTEMS,
         },
+        version: VERSION_PROPERTY,
       },
       required: ["package"],
     },
@@ -70,23 +103,60 @@ const TOOLS: ToolDef[] = [
       if (!pkg) return errorContent("`package` is required");
       if (pkg.length > 214) return errorContent("`package` is too long");
 
-      const key = `info:${ecosystem ?? "auto"}:${pkg}`;
+      let version: string | null;
+      try {
+        version = parseRequestedVersion(args);
+      } catch (err) {
+        if (err instanceof InvalidExactVersion) {
+          return errorContent(invalidVersionText(pkg, args.version));
+        }
+        throw err;
+      }
+
+      const key = `info:${ecosystem ?? "auto"}:${pkg}@${version ?? "latest"}`;
       const cached = await cacheGet<unknown>(env, key);
       if (cached) return jsonContent(cached);
 
-      const info = await fetchPackage(pkg, ecosystem, env);
+      const info = await fetchPackage(pkg, ecosystem, env, version);
       if (!info) {
+        if (version) return errorContent(exactNotFoundText(pkg, ecosystem, version, "metadata"));
         return errorContent(
           `Package '${pkg}' not found${ecosystem ? ` in ${ecosystem}` : " in any registry"}`,
         );
       }
-      await cachePut(env, key, info);
-      return jsonContent(info);
+
+      const result = version
+        ? {
+            name: info.name,
+            ecosystem: info.ecosystem,
+            requested_version: version,
+            resolved_version: info.version ?? version,
+            version_source: "exact",
+            description: info.description,
+            docs_url: info.docs_url,
+            repository: info.repository,
+            homepage: info.homepage,
+            license: info.license,
+          }
+        : {
+            name: info.name,
+            ecosystem: info.ecosystem,
+            latest_stable: info.latest_stable,
+            version_source: "latest_stable",
+            description: info.description,
+            docs_url: info.docs_url,
+            repository: info.repository,
+            homepage: info.homepage,
+            license: info.license,
+          };
+      await cachePut(env, key, result);
+      return jsonContent(result);
     },
   },
   {
     name: "get_package_docs",
-    description: "Fetch the README or long description content for a package.",
+    description:
+      "Fetch the README or long description content for a package. Pass 'version' to read one exact release's documentation.",
     inputSchema: {
       type: "object",
       properties: {
@@ -96,6 +166,7 @@ const TOOLS: ToolDef[] = [
           description: "Language/ecosystem (auto-detected if omitted)",
           enum: ECOSYSTEMS,
         },
+        version: VERSION_PROPERTY,
       },
       required: ["package"],
     },
@@ -105,25 +176,46 @@ const TOOLS: ToolDef[] = [
       const ecosystem = args.ecosystem ? String(args.ecosystem) : undefined;
       if (!pkg) return errorContent("`package` is required");
 
-      const key = `docs:${ecosystem ?? "auto"}:${pkg}`;
+      let version: string | null;
+      try {
+        version = parseRequestedVersion(args);
+      } catch (err) {
+        if (err instanceof InvalidExactVersion) {
+          return errorContent(invalidVersionText(pkg, args.version));
+        }
+        throw err;
+      }
+
+      const key = `docs:${ecosystem ?? "auto"}:${pkg}@${version ?? "latest"}`;
       const cached = await cacheGet<{ text: string }>(env, key);
       if (cached) return textContent(cached.text);
 
-      const info = await fetchPackage(pkg, ecosystem, env);
-      if (!info) return errorContent(`Package '${pkg}' not found`);
-
-      const readme = await fetchReadmeFor(info, env);
-      if (!readme) {
-        return textContent(
-          `No documentation content found for ${info.name} (${info.ecosystem})`,
-        );
+      const info = await fetchPackage(pkg, ecosystem, env, version);
+      if (!info) {
+        if (version) return errorContent(exactNotFoundText(pkg, ecosystem, version, "documentation"));
+        return errorContent(`Package '${pkg}' not found`);
       }
-      const header =
-        `# ${info.name} v${info.latest_stable} (${info.ecosystem})\n` +
+
+      const doc = await fetchReadmeForWithProvenance(info, env, version);
+      const resolved = version ? (info.version ?? version) : (info.latest_stable ?? "");
+
+      if (!doc) {
+        const label = resolved ? `${info.name} v${resolved}` : info.name;
+        let msg = `No documentation content found for ${label} (${info.ecosystem})`;
+        if (version) msg += "\nNo content from another version was substituted.";
+        if (info.docs_url) msg += `\nDocs URL: ${info.docs_url}`;
+        if (info.repository) msg += `\nRepository: ${info.repository}`;
+        return textContent(msg);
+      }
+
+      let header =
+        `# ${info.name} v${resolved} (${info.ecosystem})\n` +
+        (version ? `Version: exact (${version})\n` : "Version: latest stable\n") +
         `License: ${info.license ?? "unknown"}\n` +
+        `Source: ${doc.source} (${doc.source_url})\n` +
         (info.docs_url ? `Docs: ${info.docs_url}\n` : "") +
         "\n---\n\n";
-      const text = header + readme;
+      const text = header + doc.text;
       await cachePut(env, key, { text });
       return textContent(text);
     },
