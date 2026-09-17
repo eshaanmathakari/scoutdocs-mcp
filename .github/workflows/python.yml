@@ -48,11 +48,14 @@ jobs:
           uv build
           uv tool run twine check dist/*
 
-      - name: Verify install in clean env
+      - name: Verify install in clean env (fresh dependency resolution)
         run: |
           uv venv /tmp/v
           uv pip install --python /tmp/v/bin/python dist/*.whl
           /tmp/v/bin/python -c "import scoutdocs_mcp; print(scoutdocs_mcp.__version__)"
+          # Import the real server surface too: a wheel that only imports its
+          # version string can hide SDK breakage behind a green check.
+          /tmp/v/bin/python -c "import asyncio; from scoutdocs_mcp import server; print(len(asyncio.run(server.list_tools())), 'tools')"
           test -x /tmp/v/bin/scoutdocs-mcp
 
       - name: Validate README install commands match package name
