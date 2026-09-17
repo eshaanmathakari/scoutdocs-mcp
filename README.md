@@ -21,15 +21,15 @@ LLMs are trained on a snapshot — the docs they "know" may be months or years o
 
 | Tool | Where | What it does |
 |------|-------|--------------|
-| `get_package_info` | local + hosted | Latest stable version + metadata; optional exact `version` (local) |
-| `get_package_docs` | local + hosted | README / long-description content; optional exact `version` (local) |
+| `get_package_info` | local + hosted | Latest stable version + metadata; optional exact `version` |
+| `get_package_docs` | local + hosted | README / long-description content; optional exact `version` |
 | `search_package_docs` | local + hosted | Bounded discovery: docs URL, `llms.txt` / `llms-full.txt`, sitemap, same-host links — ranks pages by query match |
 | `detect_project_dependencies` | local only | Reads pyproject/requirements/uv.lock, package.json/package-lock, Cargo.toml/Cargo.lock |
 | `cache_stats` | local only | Local SQLite cache stats |
 
 ### Exact versions
 
-Both doc tools take an optional exact `version` (local server). The rule is simple: **served exactly, or not at all** — the latest release is never silently substituted.
+Both doc tools take an optional exact `version`. The rule is simple: **served exactly, or not at all** — the latest release is never silently substituted.
 
 ```mermaid
 flowchart LR
@@ -65,7 +65,7 @@ What that buys you when a version matters:
 - Cache entries are per-version: one version's docs are never served for another.
 - On a pinned project, feed the `declared_version` from `detect_project_dependencies` into `version=` to read exactly what the project builds with.
 
-> Exact versions run in the **local server**; the hosted endpoint serves latest stable.
+> Exact versions work on **both servers** — the local install and the hosted endpoint.
 
 ## Quickstart
 
